@@ -892,12 +892,19 @@ def _openapi(cfg, host):
     def body(name, required, props):
         p = {}
         for key, typ, desc, req2 in props:
-            p[key] = {"type": typ, "description": desc}
+            if typ == "array<string>":
+                p[key] = {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": desc,
+                }
+            else:
+                p[key] = {"type": typ, "description": desc}
             if req2:
                 required.append(key)
         return {
             "name": name,
-            "required": required,
+            "required": True,
             "content": {"application/json": {"schema": {
                 "type": "object",
                 "properties": p,
@@ -1011,7 +1018,7 @@ def _openapi(cfg, host):
                         f("remote", "string", "Remote name (default origin)", False),
                         f("branch", "string", "Branch name (push/pull)", False),
                         f("force", "boolean", "Force push (FULL mode only)", False),
-                        f("files", "array", "Files to add (default .)", False)]))
+                        f("files", "array<string>", "Files to add (default .)", False)]))
         },
         "/dev": {
             "post": op("termux_dev", "Run a development build task",
@@ -1046,7 +1053,7 @@ def _openapi(cfg, host):
                        "Executes workflows/<name>.sh with args.",
                        body("WorkflowRequest", ["name"],
                        [f("name", "string", "Workflow name without .sh", True),
-                        f("args", "array", "Arguments passed to the script", False),
+                        f("args", "array<string>", "Arguments passed to the script", False),
                         f("env", "object", "Extra environment variables", False),
                         f("timeout", "integer", "Timeout seconds", False),
                         f("async", "boolean", "Run in background", False)]))
@@ -1054,7 +1061,7 @@ def _openapi(cfg, host):
     }
 
     return {
-        "openapi": "3.0.3",
+        "openapi": "3.1.0",
         "info": {
             "title": "Termux AI Bridge",
             "description": (
