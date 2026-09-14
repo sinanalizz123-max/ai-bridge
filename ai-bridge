@@ -1,0 +1,307 @@
+#!/data/data/com.termux/files/usr/bin/bash
+###############################################################################
+# ai-bridge - control the Termux AI bridge
+#
+#   ai-bridge start|stop|restart|status
+#   ai-bridge mode <safe|development|full>
+#   ai-bridge log [lines]
+#   ai-bridge token [show|rotate]
+#   ai-bridge add-project <path>
+#   ai-bridge enable|disable
+#   ai-bridge openapi
+#   ai-bridge workflows
+#   ai-bridge boot [on|off]
+###############################################################################
+
+BRIDGE_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+CONFIG="$BRIDGE_DIR/config/config.json"
+LOG="$BRIDGE_DIR/logs/bridge.log"
+RUN_DIR="$BRIDGE_DIR/run"
+PID_FILE="$RUN_DIR/bridge.pid"
+TUNNEL_PID_FILE="$RUN_DIR/tunnel.pid"
+TUNNEL_LOG="$BRIDGE_DIR/logs/tunnel.log"
+PORT="$(python3 -c "import json;print(json.load(open('$CONFIG'))['port'])" 2>/dev/null || echo 8765)"
+
+cfg_get() { python3 -c "import json,sys;print(json.load(open('$CONFIG')).get('$1',''))" 2>/dev/null; }
+cfg_set() { python3 -c "import json;p='$CONFIG';d=json.load(open(p));d['$1']=$2;json.dump(d,open(p,'w'),indent=2)"; }
+
+is_running() { [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; }
+
+banner() {
+    clear
+    echo "======================================================"
+    echo "   ai-bridge  •  Termux ↔ ChatGPT"
+    echo "======================================================"
+}
+
+ensure_config() {
+    if [ ! -f "$CONFIG" ]; then
+        python3 "$BRIDGE_DIR/bridge.py" --init >/dev/null 2>&1
+    fi
+}
+
+start_server() {
+    ensure_config
+    if is_running; then
+        echo "server already running (pid $(cat "$PID_FILE"))"
+        return 0
+    fi
+    nohup python3 "$BRIDGE_DIR/bridge.py" >> "$BRIDGE_DIR/logs/server.log" 2>&1 &
+    echo $! > "$PID_FILE"
+    for _ in $(seq 1 50); do
+        is_running && break
+        sleep 0.1
+    done
+    if ! is_running; then
+        echo "ERROR: server failed to start. See $BRIDGE_DIR/logs/server.log"
+        return 1
+    fi
+    echo "server started (pid $(cat "$PID_FILE"))"
+}
+
+stop_server() {
+    if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+        kill "$(cat "$PID_FILE")" 2>/dev/null
+        sleep 1
+        kill -9 "$(cat "$PID_FILE")" 2>/dev/null
+        rm -f "$PID_FILE"
+        echo "server stopped"
+    else
+        echo "server not running"
+    fi
+}
+
+start_tunnel() {
+    local url="" provider cmd
+    rm -f "$TUNNEL_LOG"
+    # provider candidates, tried in order
+    for provider in localhost.run serveo.net; do
+        echo "[*] trying tunnel provider: $provider ..."
+        # localhost.run uses user 'nokey', serveo uses the default user
+        if [ "$provider" = "localhost.run" ]; then
+            cmd=(ssh -tt -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 \
+                 -o ServerAliveCountMax=3 \
+                 -R 80:localhost:"$PORT" nokey@localhost.run)
+        else
+            cmd=(ssh -tt -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 \
+                 -o ServerAliveCountMax=3 \
+                 -R 80:localhost:"$PORT" serveo.net)
+        fi
+        nohup "${cmd[@]}" > "$TUNNEL_LOG" 2>&1 &
+        local tpid=$!
+        echo "$tpid" > "$TUNNEL_PID_FILE"
+        local pat
+        [ "$provider" = "localhost.run" ] && pat="https://[a-z0-9.-]*[.]lhr[.]life" || pat="https://[a-z0-9.-]*[.]serveo[.]net"
+        for _ in $(seq 1 40); do
+            sleep 0.5
+            url="$(grep -oE "$pat" "$TUNNEL_LOG" 2>/dev/null | head -1)"
+            [ -n "$url" ] && break
+            if ! kill -0 "$tpid" 2>/dev/null; then break; fi
+        done
+        if [ -n "$url" ]; then
+            echo "[*] tunnel up at $url"
+            echo "$url" > "$RUN_DIR/tunnel_url"
+            return 0
+        fi
+        kill "$tpid" 2>/dev/null
+        rm -f "$TUNNEL_PID_FILE"
+    done
+    echo "WARNING: could not establish a public tunnel automatically."
+    echo "Manual options:"
+    echo "  Install cloudflared:  pkg install cloudflared && cloudflared tunnel --url http://localhost:$PORT"
+    echo "  Or run a tunnel on another device pointing at http://localhost:$PORT"
+    return 1
+}
+
+show_dashboard() {
+    banner
+    local token url
+    token="$(cfg_get token)"
+    url="$(cat "$RUN_DIR/tunnel_url" 2>/dev/null)"
+    echo
+    echo "  Mode      : $(cfg_get mode)"
+    echo "  Workspaces: $(python3 -c "import json;print(', '.join(json.load(open('$CONFIG'))['workspaces']))" 2>/dev/null)"
+    echo "  Processes : done"
+    echo
+    if [ -n "$url" ]; then
+        echo "  Public URL : $url"
+        echo "  OpenAPI    : $url/$token/openapi.json"
+        echo
+        echo "  ▶ ChatGPT Setup (no API key needed):"
+        echo "    1. Create a Custom GPT  →  Configure  →  Actions"
+        echo "    2. Import from URL :  $url/$token/openapi.json"
+        echo "    3. Authentication   :  No authentication"
+        echo "    4. Save. Done."
+    else
+        echo "  Tunnel: not connected"
+        echo "  Local  : http://127.0.0.1:$PORT/$token/openapi.json"
+    fi
+    echo
+    echo "  Emergency stops:  ai-bridge stop | ai-bridge disable"
+    echo "======================================================"
+}
+
+cmd_start() {
+    start_server || return 1
+    start_tunnel
+    show_dashboard
+}
+cmd_stop()  { stop_tunnel; stop_server; }
+cmd_restart(){ cmd_stop; cmd_start; }
+
+stop_tunnel() {
+    if [ -f "$TUNNEL_PID_FILE" ]; then
+        kill "$(cat "$TUNNEL_PID_FILE")" 2>/dev/null
+        rm -f "$TUNNEL_PID_FILE"
+        rm -f "$RUN_DIR/tunnel_url"
+        echo "tunnel stopped"
+    fi
+}
+
+cmd_status() {
+    banner
+    if is_running; then
+        echo "  Server : RUNNING (pid $(cat "$PID_FILE"))"
+    else
+        echo "  Server : STOPPED"
+    fi
+    if [ -f "$TUNNEL_PID_FILE" ] && kill -0 "$(cat "$TUNNEL_PID_FILE")" 2>/dev/null; then
+        echo "  Tunnel : RUNNING → $(cat "$RUN_DIR/tunnel_url" 2>/dev/null)"
+    else
+        echo "  Tunnel : stopped"
+    fi
+    echo "  Mode   : $(cfg_get mode)"
+    echo "  Open local URL  : http://127.0.0.1:$PORT/$(cfg_get token)/health"
+    echo "======================================================"
+}
+
+cmd_mode() {
+    local m="${1:-}"
+    case "${m,,}" in
+        safe) cfg_set mode '"SAFE"' ;;
+        development) cfg_set mode '"DEVELOPMENT"' ;;
+        full) cfg_set mode '"FULL"' ;;
+        *) echo "Usage: ai-bridge mode <safe|development|full>"; echo "current: $(cfg_get mode)" ; return 1 ;;
+    esac
+    echo "mode set to ${m^^}"
+    if is_running; then echo "note: config is re-read on every request, no restart needed."; fi
+}
+
+cmd_log() {
+    local n="${1:-80}"
+    [ -f "$LOG" ] && tail -n "$n" "$LOG" || echo "no logs yet. start the bridge first."
+}
+
+cmd_token() {
+    case "${1:-show}" in
+        show)
+            echo "access token: $(cfg_get token)"
+            echo "config file : $CONFIG"
+            echo "KEEP THIS SECRET. It lives in your URL path and grants shell access." ;;
+        rotate)
+            cfg_set token "$(python3 -c "import secrets;print(secrets.token_urlsafe(20))")"
+            echo "token rotated. new token: $(cfg_get token)"
+            echo "You must update the OpenAPI import URL in ChatGPT with the new token." ;;
+        *) echo "Usage: ai-bridge token [show|rotate]" ;;
+    esac
+}
+
+cmd_add_project() {
+    local p="${1:-}"
+    if [ -z "$p" ]; then
+        echo "Usage: ai-bridge add-project <absolute-path>"
+        return 1
+    fi
+    p="$(python3 -c "import os,sys;print(os.path.realpath('$p'))")"
+    python3 - "$p" <<'PY'
+import json,sys,os
+p=sys.argv[1]; f=open('/data/data/com.termux/files/home/ai-bridge/config/config.json')
+d=json.load(f); f.close()
+ws=[os.path.realpath(x) for x in d.get('workspaces')]
+if p not in ws:
+    ws.append(p); d['workspaces']=ws; json.dump(d,open('/data/data/com.termux/files/home/ai-bridge/config/config.json','w'),indent=2)
+print('workspaces:', ', '.join(ws))
+PY
+}
+
+cmd_enable()  { cfg_set enabled true;  echo "bridge enabled"; if is_running; then echo "now accepting requests"; fi; }
+cmd_disable() { cfg_set enabled false; echo "bridge DISABLED (emergency stop). run 'ai-bridge enable' to resume."; }
+
+cmd_boot() {
+    local arg="${1:-}"
+    local bootdir="$HOME/.termux/boot"
+    case "$arg" in
+        on)
+            mkdir -p "$bootdir"
+            printf '#!/data/data/com.termux/files/usr/bin/bash\n%s/ai-bridge start >/dev/null 2>&1 &\n' "$BRIDGE_DIR" > "$bootdir/ai-bridge.sh"
+            chmod +x "$bootdir/ai-bridge.sh"
+            echo "boot integration enabled: $bootdir/ai-bridge.sh" ;;
+        off)
+            rm -f "$bootdir/ai-bridge.sh"
+            echo "boot integration disabled" ;;
+        *) echo "Usage: ai-bridge boot [on|off]" ;;
+    esac
+}
+
+cmd_openapi() {
+    local token url
+    token="$(cfg_get token)"
+    url="$(cat "$RUN_DIR/tunnel_url" 2>/dev/null)"
+    if [ -n "$url" ]; then
+        echo "Import this URL into ChatGPT Actions:"
+        echo "  $url/$token/openapi.json"
+    else
+        echo "Tunnel not connected. Start it with 'ai-bridge start'."
+        echo "Local spec (for testing): http://127.0.0.1:$PORT/$token/openapi.json"
+    fi
+}
+
+cmd_workflows() {
+    echo "Available workflows:"
+    for f in "$BRIDGE_DIR"/workflows/*.sh; do
+        [ -e "$f" ] || continue
+        name="$(basename "$f" .sh)"
+        desc="$(sed -e '1{/^#!/d}' "$f" | head -1 | sed 's/^# *//')"
+        printf "  %-24s %s\n" "$name" "$desc"
+    done
+}
+
+cmd_help() {
+    cat <<'EOF'
+ai-bridge - control the Termux AI bridge
+
+USAGE
+  ai-bridge start                 start server + public tunnel
+  ai-bridge stop                  kill tunnel + server (emergency)
+  ai-bridge restart               restart everything
+  ai-bridge status                show server/tunnel/mode status
+  ai-bridge mode <safe|development|full>   switch safety mode
+  ai-bridge token [show|rotate]   manage the secret access token
+  ai-bridge add-project <path>    allow a project directory
+  ai-bridge enable|disable        emergency enable / stop
+  ai-bridge log [n]               show last n log lines
+  ai-bridge openapi               print the ChatGPT import URL
+  ai-bridge workflows             list available workflows
+  ai-bridge boot [on|off]         optional autostart on phone boot
+EOF
+}
+
+cmd="${1:-help}"
+shift 2>/dev/null || true
+case "$cmd" in
+    start) cmd_start ;;
+    stop) cmd_stop ;;
+    restart) cmd_restart ;;
+    status) cmd_status ;;
+    mode) cmd_mode "$1" ;;
+    token) cmd_token "$1" ;;
+    add-project) cmd_add_project "$1" ;;
+    enable) cmd_enable ;;
+    disable) cmd_disable ;;
+    log) cmd_log "$1" ;;
+    openapi) cmd_openapi ;;
+    workflows) cmd_workflows ;;
+    boot) cmd_boot "$1" ;;
+    help|--help|-h) cmd_help ;;
+    *) echo "unknown command: $cmd"; cmd_help ;;
+esac

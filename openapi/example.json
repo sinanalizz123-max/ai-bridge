@@ -1,0 +1,754 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Termux AI Bridge",
+    "description": "Lets ChatGPT operate your Android Termux environment: run shell commands, read/write/search files, run git and gradle, inspect the system and trigger workflows. Workspaces, operation modes and path sandboxing keep it safe. Setup: choose 'No authentication' in ChatGPT Actions - the secret URL path already authenticates you.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://your-tunnel-host:443/TOKEN_PLACEHOLDER"
+    }
+  ],
+  "security": [],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "bridge_health",
+        "summary": "Check the bridge is alive",
+        "description": "Returns bridge status, mode and token id (never the token itself).",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/version": {
+      "get": {
+        "operationId": "bridge_version",
+        "summary": "Get bridge version info",
+        "description": "Returns tool version details.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/execute": {
+      "post": {
+        "operationId": "termux_run_command",
+        "summary": "Run an arbitrary Termux shell command",
+        "description": "Runs a bash command in the requested working directory. Returns stdout, stderr, exit_code and duration.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "requestBody": {
+          "name": "ExecuteRequest",
+          "required": [
+            "command",
+            "command"
+          ],
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "command": {
+                    "type": "string",
+                    "description": "The shell command to execute, e.g. 'ls -la' or './gradlew assembleDebug'"
+                  },
+                  "working_directory": {
+                    "type": "string",
+                    "description": "Absolute path to run in (must be inside a workspace)"
+                  },
+                  "timeout": {
+                    "type": "integer",
+                    "description": "Timeout in seconds (max 3600)"
+                  },
+                  "async": {
+                    "type": "boolean",
+                    "description": "If true returns a process_id instead of waiting"
+                  },
+                  "max_output": {
+                    "type": "integer",
+                    "description": "Max bytes of stdout/stderr to capture"
+                  }
+                },
+                "required": [
+                  "command",
+                  "command"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/process/status": {
+      "post": {
+        "operationId": "termux_process_status",
+        "summary": "Check long-running command status",
+        "description": "Polls a process started with async=true",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "requestBody": {
+          "name": "ProcRequest",
+          "required": [
+            "process_id",
+            "process_id"
+          ],
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "process_id": {
+                    "type": "integer",
+                    "description": "The pid returned by execute"
+                  }
+                },
+                "required": [
+                  "process_id",
+                  "process_id"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/process/output": {
+      "post": {
+        "operationId": "termux_process_output",
+        "summary": "Read output of a long-running command",
+        "description": "Returns stdout/stderr captured so far",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "requestBody": {
+          "name": "ProcRequest",
+          "required": [
+            "process_id",
+            "process_id"
+          ],
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "process_id": {
+                    "type": "integer",
+                    "description": "The pid returned by execute"
+                  }
+                },
+                "required": [
+                  "process_id",
+                  "process_id"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/process/cancel": {
+      "post": {
+        "operationId": "termux_process_cancel",
+        "summary": "Cancel a long-running command",
+        "description": "Terminates the process group",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "requestBody": {
+          "name": "ProcRequest",
+          "required": [
+            "process_id",
+            "process_id"
+          ],
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "process_id": {
+                    "type": "integer",
+                    "description": "The pid to kill"
+                  }
+                },
+                "required": [
+                  "process_id",
+                  "process_id"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/process/list": {
+      "get": {
+        "operationId": "termux_process_list",
+        "summary": "List running commands",
+        "description": "List active long-running commands",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/files/list": {
+      "post": {
+        "operationId": "termux_list_directory",
+        "summary": "List a directory",
+        "description": "Returns files with type, size and mtime.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "requestBody": {
+          "name": "FilesListRequest",
+          "required": [
+            "path",
+            "path"
+          ],
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "Absolute directory path"
+                  }
+                },
+                "required": [
+                  "path",
+                  "path"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/read": {
+      "post": {
+        "operationId": "termux_read_file",
+        "summary": "Read a file",
+        "description": "Returns the full contents of a text file.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "requestBody": {
+          "name": "PathRequest",
+          "required": [
+            "path",
+            "path"
+          ],
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "Absolute file path"
+                  }
+                },
+                "required": [
+                  "path",
+                  "path"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/write": {
+      "post": {
+        "operationId": "termux_write_file",
+        "summary": "Create or overwrite a file",
+        "description": "Writes content to a path inside a workspace.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "requestBody": {
+          "name": "FilesWriteRequest",
+          "required": [
+            "path",
+            "content",
+            "path",
+            "content"
+          ],
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "Absolute file path"
+                  },
+                  "content": {
+                    "type": "string",
+                    "description": "Full file content"
+                  }
+                },
+                "required": [
+                  "path",
+                  "content",
+                  "path",
+                  "content"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/delete": {
+      "post": {
+        "operationId": "termux_delete_file",
+        "summary": "Delete a file or directory",
+        "description": "Deletes a file, or directory with recursive=true.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "requestBody": {
+          "name": "FilesDeleteRequest",
+          "required": [
+            "path",
+            "path"
+          ],
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "Absolute path"
+                  },
+                  "recursive": {
+                    "type": "boolean",
+                    "description": "Delete directories recursively"
+                  }
+                },
+                "required": [
+                  "path",
+                  "path"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/move": {
+      "post": {
+        "operationId": "termux_move_file",
+        "summary": "Move or rename a file",
+        "description": "Moves/renames within allowed workspaces.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "requestBody": {
+          "name": "FilesMoveRequest",
+          "required": [
+            "source",
+            "destination",
+            "source",
+            "destination"
+          ],
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "description": "Source absolute path"
+                  },
+                  "destination": {
+                    "type": "string",
+                    "description": "Destination absolute path"
+                  }
+                },
+                "required": [
+                  "source",
+                  "destination",
+                  "source",
+                  "destination"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/search": {
+      "post": {
+        "operationId": "termux_search_files",
+        "summary": "Search files by name pattern",
+        "description": "Finds files matching a glob (e.g. *.java).",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "requestBody": {
+          "name": "FilesSearchRequest",
+          "required": [
+            "path",
+            "pattern",
+            "path",
+            "pattern"
+          ],
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "Root directory"
+                  },
+                  "pattern": {
+                    "type": "string",
+                    "description": "Glob pattern e.g. '*.java' or '*Test*'"
+                  },
+                  "depth": {
+                    "type": "integer",
+                    "description": "Max subdirectory depth"
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "description": "Max results"
+                  }
+                },
+                "required": [
+                  "path",
+                  "pattern",
+                  "path",
+                  "pattern"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/exists": {
+      "post": {
+        "operationId": "termux_file_exists",
+        "summary": "Check whether a path exists",
+        "description": "Returns exists/is_file/is_dir.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "requestBody": {
+          "name": "PathRequest",
+          "required": [
+            "path",
+            "path"
+          ],
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "Absolute path"
+                  }
+                },
+                "required": [
+                  "path",
+                  "path"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/git": {
+      "post": {
+        "operationId": "termux_git",
+        "summary": "Run a safe git operation",
+        "description": "ops: status, diff, log, add, commit, push, pull. commit needs 'message'. push can take 'remote' and 'branch'.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "requestBody": {
+          "name": "GitRequest",
+          "required": [
+            "path",
+            "op",
+            "path",
+            "op"
+          ],
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "Project directory"
+                  },
+                  "op": {
+                    "type": "string",
+                    "description": "status|diff|log|add|commit|push|pull"
+                  },
+                  "message": {
+                    "type": "string",
+                    "description": "Commit message (for commit)"
+                  },
+                  "remote": {
+                    "type": "string",
+                    "description": "Remote name (default origin)"
+                  },
+                  "branch": {
+                    "type": "string",
+                    "description": "Branch name (push/pull)"
+                  },
+                  "force": {
+                    "type": "boolean",
+                    "description": "Force push (FULL mode only)"
+                  },
+                  "files": {
+                    "type": "array",
+                    "description": "Files to add (default .)"
+                  }
+                },
+                "required": [
+                  "path",
+                  "op",
+                  "path",
+                  "op"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dev": {
+      "post": {
+        "operationId": "termux_dev",
+        "summary": "Run a development build task",
+        "description": "kinds: build, clean, test, gradle, script.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "requestBody": {
+          "name": "DevRequest",
+          "required": [
+            "path",
+            "kind",
+            "path",
+            "kind"
+          ],
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "Project directory"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "description": "build|clean|test|gradle|script"
+                  },
+                  "task": {
+                    "type": "string",
+                    "description": "Gradle task, e.g. assembleDebug"
+                  },
+                  "script": {
+                    "type": "string",
+                    "description": "Custom script path (for kind=script)"
+                  },
+                  "args": {
+                    "type": "string",
+                    "description": "Extra args"
+                  }
+                },
+                "required": [
+                  "path",
+                  "kind",
+                  "path",
+                  "kind"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/system/info": {
+      "post": {
+        "operationId": "termux_system_info",
+        "summary": "Inspect system environment",
+        "description": "Returns OS, device, installed toolchain versions.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/system/disk": {
+      "post": {
+        "operationId": "termux_disk_usage",
+        "summary": "Check disk usage",
+        "description": "Returns df -h output.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/system/processes": {
+      "post": {
+        "operationId": "termux_processes",
+        "summary": "List system processes",
+        "description": "Returns process table.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/system/check": {
+      "post": {
+        "operationId": "termux_check_command",
+        "summary": "Check if a command is installed",
+        "description": "Returns found + version.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "requestBody": {
+          "name": "CheckCommandRequest",
+          "required": [
+            "command",
+            "command"
+          ],
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "command": {
+                    "type": "string",
+                    "description": "Binary name, e.g. gradle"
+                  }
+                },
+                "required": [
+                  "command",
+                  "command"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workflows": {
+      "get": {
+        "operationId": "termux_list_workflows",
+        "summary": "List available workflows",
+        "description": "Returns names and descriptions of scripts in workflows/.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "operationId": "termux_run_workflow",
+        "summary": "Run a named workflow",
+        "description": "Executes workflows/<name>.sh with args.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "requestBody": {
+          "name": "WorkflowRequest",
+          "required": [
+            "name",
+            "name"
+          ],
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Workflow name without .sh"
+                  },
+                  "args": {
+                    "type": "array",
+                    "description": "Arguments passed to the script"
+                  },
+                  "env": {
+                    "type": "object",
+                    "description": "Extra environment variables"
+                  },
+                  "timeout": {
+                    "type": "integer",
+                    "description": "Timeout seconds"
+                  },
+                  "async": {
+                    "type": "boolean",
+                    "description": "Run in background"
+                  }
+                },
+                "required": [
+                  "name",
+                  "name"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

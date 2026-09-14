@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "enabled": true,
+  "host": "127.0.0.1",
+  "port": 8765,
+  "token": "",
+  "api_key": "",
+  "mode": "DEVELOPMENT",
+  "workspaces": [
+    "/data/data/com.termux/files/home"
+  ],
+  "allow_full_filesystem": false,
+  "default_timeout": 600,
+  "max_timeout": 3600,
+  "max_capture": 4194304,
+  "rate_limit": 180,
+  "max_open_commands": 20,
+  "git_allow_rebase": false
+}

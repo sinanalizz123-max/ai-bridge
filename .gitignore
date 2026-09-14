@@ -1,0 +1,28 @@
+# ===== NEVER commit real secrets =====
+# ai-bridge generates a live token into config/config.json on first run.
+# That file MUST stay local. See config/config.example.json instead.
+config/config.json
+config/*.conf
+config/*.key
+
+# Runtime state, logs and temp command capture
+logs/*
+!logs/.gitkeep
+run/*
+!run/.gitkeep
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+
+# Local env / credentials
+.env
+.env.*
+!.env.example
+
+# Tunnel identity/cache
+*.lhr.life
+.ssh/
+id_rsa
+id_ed25519
+known_hosts
